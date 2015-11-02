@@ -1,0 +1,303 @@
+using UnityEngine;
+using System.Collections;
+
+public class Elevator : MonoBehaviour {
+	
+	// Inspector Modifiable Variables
+	public Transform floor;
+	public Transform[] floorPositions;
+	public FloorManager[] floorManagers;
+	public DoorInfo[] doors;
+	public float feetPerMinute;
+	public float walkSpeed;
+	public bool climbFloors = true;
+	
+	// Sprite Info (Player)
+	int originalSpriteLayer;
+	int originalOrderInLayer;
+	Transform originalParent;
+	
+	// Floor Information
+	int currentFloor = 0;
+	int topFloor;
+	int floorChange = 1;
+	
+	// Usability
+	bool canUse;
+	bool triggerEntered;
+	
+	// Level and Player info
+	LevelManager manager;
+	PlayerController player;
+	
+	
+	// Elevator Information
+	Vector3 nextFloor;
+	Vector3 thisFloor;
+	Vector3 thisFloorFootPosition;
+	Vector3 groundCheckOffset;
+	Vector3 distanceStart;
+	Vector3 dir;
+	Vector3 localPos;
+	float distanceStartMagnitude;
+	float distanceMagnitude;
+	float differenceZ;
+	float differenceY;
+	float timePassed;	
+	bool elevating;
+	
+	// Use this for initialization
+	void Start () {
+		topFloor = floorPositions.Length - 1;
+		SetFloorChange();
+		manager = transform.root.GetComponentInChildren<LevelManager>();
+	}
+	
+	// Update is called once per frame
+	void Update () {
+	
+		if (Input.GetKeyDown(KeyCode.C))
+			SimplyFraction(10, 86);
+			
+		canUse = floorManagers[currentFloor].canUse;
+		triggerEntered = floorManagers[currentFloor].canUse;
+		
+		if (canUse && triggerEntered && Input.GetKeyDown(KeyCode.E) && NextFloorCheck())
+			StartCoroutine(GoToNextFloor());
+			
+		if (Input.GetKeyDown(KeyCode.T) && NextFloorCheck())
+			StartCoroutine(GoToNextFloor());
+	}
+	
+	/// <summary>
+	/// Allows up or down movement based on multiplying into the direction
+	/// and determines which floor to go to.
+	/// </summary>
+	void SetFloorChange()
+	{
+		floorChange = (climbFloors) ? 1 : -1;
+		nextFloor = floorPositions[currentFloor + floorChange].position;
+		thisFloor = floorPositions[currentFloor].position;
+		elevating = true;
+	}
+	
+	/// <summary>
+	/// Make Sure there is another floor to go to.
+	/// </summary>
+	/// <returns><c>true</c>, There is another floor to go to. <c>false</c> otherwise don't move.</returns>
+	bool NextFloorCheck()
+	{
+		if ((currentFloor + floorChange) < 0 || (currentFloor + floorChange) > topFloor)
+			return false;
+		
+		return true;
+	}
+	
+	/// <summary>
+	/// Set information to position player inside elevator.
+	/// </summary>
+	void CalculatePlayer()
+	{		
+		thisFloorFootPosition = floorPositions[currentFloor].GetChild(0).position;
+		groundCheckOffset = player.groundCheck.position - player.transform.position;
+		distanceStart = (thisFloorFootPosition - groundCheckOffset) - player.transform.position;
+		dir = distanceStart.normalized;		
+		
+		distanceStartMagnitude = distanceStart.magnitude;	
+		distanceMagnitude = distanceStart.magnitude;
+	}
+	
+	/// <summary>
+	/// Calculates the information the elevator needs to move to the next floor.
+	/// </summary>
+	void CalculateElevator()
+	{
+		distanceStart = (nextFloor - thisFloor);
+		dir = distanceStart.normalized;
+		distanceStartMagnitude = distanceStart.magnitude;
+		distanceMagnitude = distanceStart.magnitude;
+	}
+	
+	/// <summary>
+	/// Grabs player, Sets states, Disables Gravity and Rigidbody, Copys sprite information.
+	/// </summary>
+	void GetPlayer()
+	{
+		player = manager.player;
+		player.DisableCollisions();
+		player.SetCutSceneMode(true, PlayerController.ControlState.CUTSCENE);
+		player.DisableGravity();
+		player.isKinematic(true);
+		
+		// Copy the original layer so it doesn't get lost.
+		originalSpriteLayer = player.spriteRender.sortingLayerID;
+		originalOrderInLayer = player.spriteRender.sortingOrder;
+		originalParent = player.transform.parent;
+	}
+	
+	void ReleasePlayer()
+	{
+	
+		player.EnableCollisions();
+		player.SetCutSceneMode(false, PlayerController.ControlState.READY);
+		player.EnableGravity();
+		player.isKinematic(false);
+		elevating = false;
+	}
+	
+	/// <summary>
+	/// Moves the player inside the elevator so it can move to next floor.
+	/// </summary>
+	bool Positioning()
+	{
+		Vector3 playerDir = Vector3.Normalize((thisFloorFootPosition - groundCheckOffset) - player.transform.position);
+		player.transform.Translate(playerDir);// * Time.deltaTime);
+		
+		distanceMagnitude = Vector3.Distance(player.transform.position, (thisFloorFootPosition - groundCheckOffset));
+		
+		if ((100 * distanceMagnitude) / distanceStartMagnitude < 5)
+		{
+			//player.transform.position = (thisFloorFootPosition - groundCheckOffset);
+			return false;
+		}	
+		
+		return true;
+	}
+	
+	/// <summary>
+	/// Moves elevator upwards and keeps the player from falling through due to ground check collisions.
+	/// </summary>
+	bool Elevate()
+	{
+		floor.Translate(dir * (feetPerMinute / 1000));
+		distanceMagnitude = Vector3.Distance(floor.position, nextFloor);
+		
+		if ((100 * distanceMagnitude) / distanceStartMagnitude < 5)
+		{
+			//floor.position = nextFloor;
+			return false;
+		}
+		
+		player.transform.localPosition = localPos;
+		return true;
+	}
+	
+	/// <summary>
+	/// Sets the player in the elevator and changes it's layer so it is hidden.
+	/// </summary>
+	void SetPlayerToElevator()
+	{
+		player.spriteRender.sortingOrder = 5;
+		player.spriteRender.sortingLayerID = 0;
+		player.transform.parent = floor;
+		localPos = player.transform.localPosition;
+	}
+	
+	IEnumerator GoToNextFloor()
+	{			
+		
+		// Determine Floor
+		SetFloorChange();
+		// Set Player up for Elevator Movement.
+		GetPlayer();
+		// Calculate movement required.
+		CalculatePlayer();
+				
+		// Position the player inside the elevator.
+		while (Positioning())
+			yield return null;
+		
+		// Tells the elevator it is operating.
+		floorManagers[currentFloor].operating = true;
+		
+		// Set the player in the elevator and change it's layer so it is hidden.
+		SetPlayerToElevator();
+		
+		// Wait for the Elevator to Close
+		while (doors[currentFloor].isOpen)			
+			yield return null;
+		
+		// Calculate the data the elevator needs to move to the next floor.
+		CalculateElevator();
+		
+		// Wait for the elevator to reach it's destination.
+		while(Elevate())
+			yield return new WaitForFixedUpdate();
+		
+		// Tell the manager the floor has changed.
+		manager.FloorChangeComplete(floorChange);
+		
+		// Make sure door can open if going back to floor.
+		floorManagers[currentFloor].operating = false;
+		
+		// Update the current floor.
+		currentFloor += floorChange;
+		
+		// Wait for door to open.
+		while (!doors[currentFloor].isOpen)			
+			yield return null;		
+
+		// Get player ready to exit elevator.
+		SetPlayerExit();
+		
+		// Wait for player to reach the floor after exiting elevator
+		while(PlayerToFloor())
+			yield return new WaitForFixedUpdate();
+		
+		// Make sure player is grounded before allowing him to be hit or move.
+		while (!player.isGrounded)
+			yield return new WaitForFixedUpdate();
+		
+		// Release the player from cutscene state so he can move.
+		ReleasePlayer();		
+		
+		// Force player back to proper Z Axis location (hack for weird rigidbody actions).
+		StartCoroutine(SetPlayerZ());
+		
+		yield return null;	
+	}
+	
+	/// <summary>
+	/// Moves player to floor via script, no physics.
+	/// </summary>
+	/// <returns><c>true</c>, if not yet to floor, <c>false</c> if player has reached time limit to move to floor.</returns>
+	bool PlayerToFloor()
+	{
+			player.transform.Translate(new Vector3 (0, differenceY / walkSpeed, differenceZ / walkSpeed) * Time.deltaTime);
+			
+			if ((timePassed += Time.deltaTime) > walkSpeed)
+				return false;
+				
+			return true;
+	}
+	
+	/// <summary>
+	/// Forces player back using kinematic physics so it doesn't mess with move.
+	/// </summary>
+	IEnumerator SetPlayerZ()
+	{
+		// Hack Player to proper Z.
+		player.GetRigidBody().isKinematic = true;
+		for (int i = 0; i < 10; i++)
+		{
+			player.transform.position = new Vector3(player.transform.position.x, player.transform.position.y, floorManagers[currentFloor].transform.position.z);
+			yield return null;
+		}
+		player.GetRigidBody().isKinematic = false;
+		yield return null;
+	}
+	
+	/// <summary>
+	/// Gets the player ready to exit the elevator, releases parent hold.
+	/// </summary>
+	void SetPlayerExit()
+	{
+		player.spriteRender.sortingLayerID = originalSpriteLayer;
+		player.spriteRender.sortingOrder = originalOrderInLayer;
+		player.transform.parent = originalParent;
+		differenceY = -player.DistanceToGround();
+		differenceZ = player.transform.position.z - floorManagers[currentFloor].transform.position.z;
+		timePassed = 0;
+	}
+	
+}
